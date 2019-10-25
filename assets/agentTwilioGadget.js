@@ -1,0 +1,229 @@
+/// Enter your Twilio runtime domain and twilio phone number below
+var runtimeDomain = "https://";
+var fromNumber = "";
+
+// If set to false, SMS will not be attempted.
+var isValid = true;
+
+var finesse = finesse || {};
+finesse.gadget = finesse.gadget || {};
+finesse.container = finesse.container || {};
+clientLogs = finesse.cslogger.ClientLogger || {}; // for logging
+
+// Gadget Config needed for instantiating ClientServices
+/** @namespace */
+
+/** @namespace */
+finesse.modules = finesse.modules || {};
+finesse.modules.TwilioGadget = (function($) {
+  var user,
+    states,
+    dialogs,
+    interactionData,
+    render = function() {
+      $("#template").change(function() {
+        var message = $("#template").val();
+        $("#msg").val(message);
+      });
+
+      $("#toMobile").change(function() {
+        var to = $("#toMobile").val();
+
+        validate(to);
+      });
+
+      $("#submit").click(function(event) {
+        event.preventDefault();
+        var to = $("#toMobile").val();
+
+        var msg = $("#msg").val();
+        sendSMS(to, msg);
+      });
+    },
+    sendSMS = function(to, msg) {
+      console.log("sms function called");
+      if (isValid) {
+        $.ajax({
+          type: "GET",
+          url: `${runtimeDomain}/sms/send?to=${to}&body=${msg}`,
+          success: function(data) {
+            msgHistory(to);
+            $("#msg").val("");
+          }
+        });
+      }
+    },
+    msgHistory = function(to) {
+      var historyTable = "";
+      $.ajax({
+        type: "GET",
+        url: `${runtimeDomain}/sms/list?to=${to}&from=${fromNumber}`,
+        success: function(data) {
+          console.log("Twilio data", data);
+          let messages = JSON.parse(data);
+          messages.forEach(function(msg) {
+            var dateSent = new Date(msg.dateCreated);
+            dateSent =
+              dateSent.getMonth() +
+              1 +
+              "-" +
+              dateSent.getDate() +
+              "-" +
+              dateSent.getFullYear() +
+              " " +
+              dateSent.toLocaleTimeString();
+            historyTable +=
+              "<tr><td>" +
+              dateSent +
+              "</td><td>" +
+              "Brad" +
+              "</td><td>" +
+              msg.body +
+              "</td></tr>";
+          });
+
+          $("#history tbody").html(historyTable);
+          gadgets.window.adjustHeight();
+        }
+      });
+    },
+    validate = function(to) {
+      // Validate NANP Phone number: 1+XXX.XXX.XXXX This can be updated to reflect your regions numbering plan
+      if (to.length == 10) {
+        to = "1" + to;
+      } else if (to.length < 10 || to.length > 11) {
+        isValid = false;
+        $("#msgCenter").append(
+          '<div class="alert alert-danger alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>Please Enter a valid Mobile Number</div>'
+        );
+        return;
+      }
+
+      // if the number is valid the msgCenter alerts are cleared
+      $("#msgCenter").empty();
+      isValid = true;
+      $("#toMobile").val(to);
+      //pull message history for valid number
+      msgHistory(to);
+    },
+    displayCall = function(dialog) {
+      var number = "";
+      var direction = "";
+
+      // determine call direction
+      switch (dialog.getMediaProperties().callType) {
+        case "ACD_IN":
+          direction = "inbound";
+          break;
+        case "TRANSFER":
+          direction = "inbound";
+          break;
+        case "OTHER_IN":
+          direction = "inbound";
+          break;
+        case "OUT":
+          direction = "outbound";
+          break;
+        case "OUTBOUND":
+          direction = "outbound";
+          break;
+        case "OUTBOUND_PREVIEW":
+          direction = "outbound";
+          break;
+        default:
+          direction = "inbound";
+      }
+
+      // set number based off the direction of the call
+      if (direction === "inbound") {
+        number = dialog.getFromAddress();
+      } else {
+        number = dialog.getMediaProperties().dialedNumber;
+      }
+
+      var callVars = dialog.getMediaProperties();
+      validate(number);
+    },
+    _processCall = function(dialog) {
+      displayCall(dialog);
+    },
+    /**
+     *  Handler for additions to the Dialogs collection object.  This will occur when a new
+     *  Dialog is created on the Finesse server for this user.
+     */
+    handleNewDialog = function(dialog) {
+      // add a dialog change handler in case the callvars didn't arrive yet
+      dialog.addHandler("change", _processCall);
+
+      // call the displayCall handler
+      displayCall(dialog);
+    },
+    /**
+     *  Handler for deletions from the Dialogs collection object for this user.  This will occur
+     *  when a Dialog is removed from this user's collection (example, end call)
+     */
+    handleEndDialog = function(dialog) {
+      // Clear the fields when the call is ended
+      $("#toMobile").val("");
+      $("#history tbody").html("<tr><td></td><td></td></tr>");
+      $("#msgCenter").empty();
+    },
+    /**
+     * Handler for the onLoad of a User object.  This occurs when the User object is initially read
+     * from the Finesse server.  Any once only initialization should be done within this function.
+     */
+    handleUserLoad = function(userevent) {
+      // Get an instance of the dialogs collection and register handlers for dialog additions and
+      // removals
+      dialogs = user.getDialogs({
+        onCollectionAdd: handleNewDialog,
+        onCollectionDelete: handleEndDialog
+      });
+
+      render();
+    },
+    /**
+     *  Handler for all User updates
+     */
+    handleUserChange = function(userevent) {};
+
+  /** @scope finesse.modules.agentTwilioGadget */
+  return {
+    /**
+     * Performs all initialization for this gadget
+     */
+    init: function() {
+      var cfg = finesse.gadget.Config;
+      var clientLogs = finesse.cslogger.ClientLogger; // declare clientLogs
+
+      gadgets.window.adjustHeight();
+
+      // Initiate the ClientServices and load the user object.  ClientServices are
+      // initialized with a reference to the current configuration.
+      finesse.clientservices.ClientServices.init(finesse.gadget.Config);
+      clientLogs.init(gadgets.Hub, "TwilioGadget"); //this gadget id will be logged as a part of the message
+      user = new finesse.restservices.User({
+        id: cfg.id,
+        onLoad: handleUserLoad,
+        onChange: handleUserChange
+      });
+
+      states = finesse.restservices.User.States;
+
+      // Initiate the ContainerServices and add a handler for when the tab is visible
+      // to adjust the height of this gadget in case the tab was not visible
+      // when the html was rendered (adjustHeight only works when tab is visible)
+
+      containerServices = finesse.containerservices.ContainerServices.init();
+      containerServices.addHandler(
+        finesse.containerservices.ContainerServices.Topics.ACTIVE_TAB,
+        function() {
+          clientLogs.log("Gadget is now visible"); // log to Finesse logger
+          // automatically adjust the height of the gadget to show the html
+          gadgets.window.adjustHeight();
+        }
+      );
+      containerServices.makeActiveTabReq();
+    }
+  };
+})(jQuery);
