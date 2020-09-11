@@ -19,6 +19,7 @@ These instructions assume you already have a Twilio account setup. If not, you c
     * Uncheck `Check for valid Twilio Signature`
     * Paste the content from the `functions/sms/send.js` file into this new function.
     * Save the function.
+    ![sample function](https://raw.githubusercontent.com/bdm1981/TwilioFinesseSMS/master/screenshots/example-function.png)
 
 1. Repeat the previous steps for the List Function
 
